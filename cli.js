@@ -6,7 +6,7 @@ const { writeFileSync, readFileSync, readdirSync, statSync, mkdirSync } = requir
 const forge = require('node-forge');
 const JSZip = require('jszip');
 const Package = require('./package.json');
-const { join } = require('path');
+const { join, relative } = require('path');
 const { homedir } = require('os');
 
 const program = new Command();
@@ -70,43 +70,30 @@ program.command('build <dir/pkg>')
                     };
                 })
             );
-
             files = files.filter(Boolean);
         } else {
-            readdirSync('.').forEach(file => {
-                const stat = statSync(file);
-                if (
-                    ignoredLiterals.includes(file) ||
-                    ignoredRegexes.some(re => re.test(file))
-                ) {
-                    return;
-                }
-                if (stat.isFile()) {
-                    const data = readFileSync(file);
-                    files.push({ uri: encodeURIComponent(file), data });
-                } else if (stat.isDirectory()) {
-                    readFilesInDirectory(file);
-                }
-            });
-
-            function readFilesInDirectory(directory) {
-                readdirSync(directory).forEach(file => {
+            const baseDir = dir;
+            function readFilesInDirectory(currentDir) {
+                readdirSync(currentDir).forEach(file => {
+                    const fullPath = join(currentDir, file);
+                    const relPath = relative(baseDir, fullPath);
                     if (
                         ignoredLiterals.includes(file) ||
-                        ignoredRegexes.some(re => re.test(file))
+                        ignoredLiterals.includes(relPath) ||
+                        ignoredRegexes.some(re => re.test(relPath))
                     ) {
                         return;
                     }
-                    const filePath = `${directory}/${file}`;
-                    const stat = statSync(filePath);
+                    const stat = statSync(fullPath);
                     if (stat.isFile()) {
-                        const data = readFileSync(filePath);
-                        files.push({ uri: encodeURIComponent(filePath), data });
+                        const data = readFileSync(fullPath);
+                        files.push({ uri: encodeURIComponent(relPath.replace(/\\/g, '/')), data });
                     } else if (stat.isDirectory()) {
-                        readFilesInDirectory(filePath);
+                        readFilesInDirectory(fullPath);
                     }
                 });
             }
+            readFilesInDirectory(baseDir);
         }
 
         const AuthorSignature = new Signature('AuthorSignature', files);
