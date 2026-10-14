@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 const { Command } = require('commander');
-const { Signature, SamsungCertificateCreator, TizenCertificateCreator } = require('./index.js');
+const { Signature, SamsungCertificateCreator, TizenCertificateCreator, installWgt, launchApp } = require('./index.js');
 const { writeFileSync, readFileSync, readdirSync, statSync, mkdirSync } = require('fs');
 const forge = require('node-forge');
 const JSZip = require('jszip');
@@ -190,6 +190,61 @@ program.command('create-samsung-cert')
         writeFileSync(`${options.output}/device-profile.xml`, info.distributorXML);
 
         console.log(`Samsung Certificate created successfully: ${options.output}`);
+    });
+
+program.command('install <pkg>')
+    .description('Install a .wgt package on the TV over network (push + vd_appinstall, no Tizen Studio needed)')
+    .option('-s, --serial <serial>', 'Target device serial (default: first device in "device" state)')
+    .option('--pkg-id <id>', 'Package ID override (default: read from config.xml inside the package)')
+    .option('--sdb <path>', 'Path to the sdb binary (default: sdb in PATH)')
+    .action(async (pkg, options) => {
+        const { existsSync, realpathSync } = require('fs');
+        const wgtPath = realpathSync(pkg);
+        if (!existsSync(wgtPath) || !wgtPath.endsWith('.wgt')) {
+            throw new Error(`Package not found or not a .wgt file: ${pkg}`);
+        }
+        let pkgId = options.pkgId;
+        if (!pkgId) {
+            const zip = await JSZip.loadAsync(readFileSync(wgtPath));
+            const cfgFile = zip.file('config.xml');
+            if (!cfgFile) throw new Error('config.xml not found inside package');
+            const cfg = await cfgFile.async('string');
+            const m = cfg.match(/package="([^"]+)"/);
+            if (!m) throw new Error('package ID not found in config.xml');
+            pkgId = m[1];
+        }
+        const res = await installWgt({
+            wgtPath,
+            pkgId,
+            serial: options.serial,
+            sdbBin: options.sdb || 'sdb',
+            onOutput: (text) => process.stdout.write(text.replace(/\r/g, '\n')),
+        });
+        if (!res.success) {
+            console.error('\nFailed to install Tizen application.');
+            process.exitCode = 1;
+        } else {
+            console.log('\nTizen application is successfully installed.');
+        }
+    });
+
+program.command('run <appId>')
+    .description('Launch an installed app on the TV over network (no Tizen Studio needed)')
+    .option('-s, --serial <serial>', 'Target device serial (default: first device in "device" state)')
+    .option('--sdb <path>', 'Path to the sdb binary (default: sdb in PATH)')
+    .action(async (appId, options) => {
+        const res = await launchApp({
+            appId,
+            serial: options.serial,
+            sdbBin: options.sdb || 'sdb',
+            onOutput: (text) => process.stdout.write(text.replace(/\r/g, '\n')),
+        });
+        if (!res.success) {
+            console.error('\nFailed to launch application.');
+            process.exitCode = 1;
+        } else {
+            console.log('\nTizen application is successfully launched.');
+        }
     });
 
 program.parse();
