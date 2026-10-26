@@ -111,9 +111,27 @@ async function installWgt({ wgtPath, pkgId, serial, sdbBin = 'sdb', onOutput = (
 
     // 2-3. Installer command over the exec stream.
     const output = await execStream(`shell:0 vd_appinstall ${pkgId} ${remotePath}`, { serial, sdbBin, onOutput, timeoutMs });
-    const ok = /was_install_app return WAS_TRUE/.test(output) &&
-        (/install completed/.test(output) || /reason: Success/.test(output));
-    return { success: ok, output, packageId: pkgId, remotePath };
+
+    // A failed install is reported with a sentence that contains the word "Success":
+    //   app_id[x] install failed[118, 0], reason: Success :
+    // so "reason: Success" is part of the failure line and must never be read as a verdict.
+    // Only `install completed` marks success; `install failed[<code>, <detail>]` is failure.
+    const failure = /install failed\[(\d+),\s*(-?\d+)\](?:,\s*reason:\s*([^:\n]*))?/i.exec(output);
+    const ok = !failure && /install completed/i.test(output);
+
+    return {
+        success: ok,
+        output,
+        packageId: pkgId,
+        remotePath,
+        ...(failure
+            ? {
+                errorCode: Number(failure[1]),
+                errorDetail: Number(failure[2]),
+                errorReason: (failure[3] || '').trim()
+            }
+            : {})
+    };
 }
 
 async function launchApp({ appId, serial, sdbBin = 'sdb', onOutput = () => {}, timeoutMs = 30000 }) {

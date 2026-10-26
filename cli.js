@@ -221,7 +221,13 @@ program.command('install <pkg>')
             onOutput: (text) => process.stdout.write(text.replace(/\r/g, '\n')),
         });
         if (!res.success) {
-            console.error('\nFailed to install Tizen application.');
+            const reason = res.errorReason && !/^success$/i.test(res.errorReason)
+                ? `: ${res.errorReason}`
+                : ' — the television gave no reason, which is not a signature or storage error';
+            const detail = res.errorCode === undefined
+                ? ''
+                : ` (code ${res.errorCode}${res.errorDetail ? `/${res.errorDetail}` : ''}${reason})`;
+            console.error(`\nFailed to install Tizen application.${detail}`);
             process.exitCode = 1;
         } else {
             console.log('\nTizen application is successfully installed.');

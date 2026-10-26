@@ -1,6 +1,13 @@
 const { createHash, createSign } = require('crypto');
-const { DOMParser } = require('@xmldom/xmldom');
 const forge = require('node-forge');
+
+// `#prop` covers a fixed object, so its digest never varies — see `_getPropDigest`.
+const AUTHOR_PROP_DIGEST =
+    'aXbSAVgmAz0GsBUeZ1UmNDRrxkWhDUVGb45dZcNRq429wX3X+x6kaXT3NdNDTSNVTU+ypkysPMGvQY10fG1EWQ==';
+const DISTRIBUTOR_PROP_DIGEST =
+    '/r5npk2VVA46QFJnejgONBEh4BWtjrtu9x/IFeLksjWyGmB/cMWKSJWQl7aU3YRQRZ3AesG8gF7qGyvKX9Snig==';
+
+const { DOMParser } = require('@xmldom/xmldom');
 const ExclusiveCanonicalization = require('./xml-c14n.js');
 
 function createReference(data, uri) {
@@ -62,25 +69,15 @@ class Signature {
     }
 
     _getPropDigest() {
-        // Build the root element wrapped in xmldsig namespace to compute canonicalized C14N digest
-        const propXml = `<Object xmlns="http://www.w3.org/2000/09/xmldsig#" Id="prop">` +
-            '<SignatureProperties xmlns:dsp="http://www.w3.org/2009/xmldsig-properties">' +
-            `<SignatureProperty Id="profile" Target="#${this.id}">` +
-            '<dsp:Profile URI="http://www.w3.org/ns/widgets-digsig#profile">' +
-            '</dsp:Profile>' +
-            '</SignatureProperty>' +
-            `<SignatureProperty Id="role" Target="#${this.id}">` +
-            `<dsp:Role URI="http://www.w3.org/ns/widgets-digsig#role-${this.id === 'AuthorSignature' ? 'author' : 'distributor'}">` +
-            '</dsp:Role>' +
-            '</SignatureProperty>' +
-            `<SignatureProperty Id="identifier" Target="#${this.id}">` +
-            '<dsp:Identifier>' +
-            '</dsp:Identifier></SignatureProperty></SignatureProperties></Object>';
-
-        const doc = new DOMParser().parseFromString(propXml, 'text/xml').documentElement;
-        const c14n = new ExclusiveCanonicalization();
-        const c14nText = c14n.process(doc);
-        return createHash('sha512').update(c14nText).digest('base64');
+        // The `#prop` reference digest is a constant: the object it covers contains no variable
+        // data — only the signature id, and the two ids give the two values below. These are the
+        // digests Samsung's own packager emits (verified byte-for-byte against a `tizen package`
+        // build of a real TV app), and a set rejects anything else with
+        // `install failed[118, -12] ... Invalid signature. Signed with wrong key`.
+        //
+        // Computing this with `xml-c14n.js` instead produced a different digest, which is why
+        // every package this tool signed failed on hardware while its file digests were correct.
+        return this.id === 'AuthorSignature' ? AUTHOR_PROP_DIGEST : DISTRIBUTOR_PROP_DIGEST;
     }
 
     _createReferences() {
