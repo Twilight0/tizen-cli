@@ -5,6 +5,11 @@ const { Signature, SamsungCertificateCreator, TizenCertificateCreator, installWg
 const { writeFileSync, readFileSync, readdirSync, statSync, mkdirSync } = require('fs');
 const forge = require('node-forge');
 const JSZip = require('jszip');
+
+// Signature files already in the tree are leftovers from an earlier build: they are regenerated
+// below, and packing them makes the signatures describe the old tree, which the set then rejects
+// with `install failed[118, -12] ... Invalid signature`.
+const STALE_SIGNATURE = /^(?:author-signature|signature\d+)\.xml$/i;
 const Package = require('./package.json');
 const { join, relative } = require('path');
 const { homedir } = require('os');
@@ -62,7 +67,7 @@ program.command('build <dir/pkg>')
                 Object.keys(zip.files).map(async (filename) => {
                     const file = zip.files[filename];
                     if (file.dir) return null;
-                    if (file.name === 'author-signature.xml' || file.name === 'signature1.xml') return null;
+                    if (STALE_SIGNATURE.test(file.name)) return null;
                     const data = await file.async('nodebuffer');
                     return {
                         uri: encodeURIComponent(filename),
@@ -78,6 +83,7 @@ program.command('build <dir/pkg>')
                     const fullPath = join(currentDir, file);
                     const relPath = relative(baseDir, fullPath);
                     if (
+                        STALE_SIGNATURE.test(file) ||
                         ignoredLiterals.includes(file) ||
                         ignoredLiterals.includes(relPath) ||
                         ignoredRegexes.some(re => re.test(relPath))
